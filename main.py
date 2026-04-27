@@ -158,7 +158,8 @@ def _verify_signature(body: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-def _reply(reply_token: str, text: str) -> None:
+def _reply(reply_token: str, text: str) -> bool:
+    url = LINE_REPLY_URL
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
@@ -167,10 +168,11 @@ def _reply(reply_token: str, text: str) -> None:
         "replyToken": reply_token,
         "messages": [{"type": "text", "text": text[:5000]}],
     }
-    response = requests.post(LINE_REPLY_URL, headers=headers, json=payload)
+    response = requests.post(url, headers=headers, json=payload)
     print("LINE reply status:", response.status_code, response.text)
     if response.status_code >= 400:
-        raise Exception(f"LINE API error {response.status_code}: {response.text}")
+        raise Exception(f"LINE API error: {response.status_code} {response.text}")
+    return True
 
 
 @app.get("/")
@@ -198,10 +200,17 @@ async def webhook(request: Request):
         reply_token = event["replyToken"]
 
         try:
-            reply_text = handle_message(user_text)
+            message = handle_message(user_text)
+            _reply(reply_token, message)
         except Exception as e:
-            reply_text = f"Sorry, something went wrong.\nError: {e}"
-
-        _reply(reply_token, reply_text)
+            err = str(e)
+            # Sanitize raw HTTP response objects (e.g. gspread APIError)
+            if "<Response" in err:
+                err = "Google Sheets error. Please try again."
+            print("ERROR:", err)
+            try:
+                _reply(reply_token, f"Error: {err}")
+            except Exception:
+                pass
 
     return {"status": "ok"}
