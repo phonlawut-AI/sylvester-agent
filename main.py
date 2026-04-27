@@ -16,6 +16,7 @@ app = FastAPI()
 LINE_CHANNEL_SECRET       = os.environ["LINE_CHANNEL_SECRET"]
 LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
 LINE_REPLY_URL            = "https://api.line.me/v2/bot/message/reply"
+LINE_PUSH_URL             = "https://api.line.me/v2/bot/message/push"
 LINE_CONTENT_URL          = "https://api-data.line.me/v2/bot/message/{}/content"
 LINE_PROFILE_URL          = "https://api.line.me/v2/bot/profile/{}"
 
@@ -57,6 +58,35 @@ def _stock_ws() -> gspread.Worksheet:
 
 def _movements_ws() -> gspread.Worksheet:
     return _gs_client().open("Sylvester Inventory").worksheet("movements")
+
+def _users_ws() -> gspread.Worksheet:
+    return _gs_client().open("Sylvester Inventory").worksheet("users")
+
+
+# ── User registration helpers ─────────────────────────────────────────────────
+
+def _get_user_record(user_id: str) -> dict | None:
+    try:
+        records = _users_ws().get_all_records()
+        for r in records:
+            if r.get("user_id") == user_id:
+                return r
+    except Exception:
+        pass
+    return None
+
+def _register_user(user_id: str, display_name: str, role: str):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    _users_ws().append_row([user_id, display_name, role, "pending", now])
+
+def _update_user_status(user_id: str, new_status: str) -> dict | None:
+    ws      = _users_ws()
+    records = ws.get_all_records()
+    for i, r in enumerate(records, start=2):
+        if r.get("user_id") == user_id:
+            ws.update_cell(i, 4, new_status)   # col 4 = status
+            return r
+    return None
 
 
 # ── Google Drive ──────────────────────────────────────────────────────────────
@@ -112,6 +142,19 @@ def _get_display_name(user_id: str) -> str:
     except Exception as e:
         print("GET PROFILE ERROR:", repr(e))
     return user_id  # fallback to ID if profile fetch fails
+
+def _push_message(to: str, messages: list[dict]):
+    """Push message to a user without a reply token (proactive send)."""
+    if not to:
+        return
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
+    }
+    resp = requests.post(LINE_PUSH_URL, headers=headers,
+                         json={"to": to, "messages": messages})
+    print("LINE push status:", resp.status_code, resp.text)
+
 
 def _download_line_image(message_id: str) -> bytes:
     """Download image content from LINE Content API."""
@@ -373,6 +416,104 @@ def _items_flex_bubble(records: list[dict]) -> dict:
                  "paddingAll": "14px", "contents": rows},
     }
 
+def _welcome_flex(display_name: str) -> tuple[dict, str]:
+    def _role_btn(label: str, role: str, color: str) -> dict:
+        return {
+            "type": "button", "style": "primary", "color": color, "height": "sm",
+            "action": {"type": "postback", "label": label,
+                       "data": f"register_role|{role}"},
+        }
+    bubble = {
+        "type": "bubble", "size": "kilo",
+        "header": {
+            "type": "box", "layout": "vertical",
+            "backgroundColor": "#1A237E", "paddingAll": "18px",
+            "contents": [
+                {"type": "text", "text": "📦 Sylvester", "color": "#FFFFFF",
+                 "weight": "bold", "size": "xxl"},
+                {"type": "text", "text": "Warehouse Assistant",
+                 "color": "#9FA8DA", "size": "sm", "margin": "xs"},
+            ],
+        },
+        "body": {
+            "type": "box", "layout": "vertical",
+            "paddingAll": "16px", "spacing": "sm",
+            "contents": [
+                {"type": "text", "text": f"Hello, {display_name}! 👋",
+                 "weight": "bold", "size": "lg"},
+                {"type": "text",
+                 "text": "Please select your position to request access.",
+                 "size": "sm", "color": "#555555", "wrap": True, "margin": "sm"},
+            ],
+        },
+        "footer": {
+            "type": "box", "layout": "vertical",
+            "spacing": "sm", "paddingAll": "12px",
+            "contents": [
+                _role_btn("🏭 Warehouse Staff",       "warehouse_staff",       "#1565C0"),
+                _role_btn("📋 Warehouse Supervisor",  "warehouse_supervisor",  "#00695C"),
+                _role_btn("👔 Manager",               "manager",               "#4A148C"),
+            ],
+        },
+    }
+    return bubble, "Welcome to Sylvester Warehouse!"
+
+
+def _approval_flex(target_user_id: str, display_name: str, role: str) -> tuple[dict, str]:
+    role_label = role.replace("_", " ").title()
+    bubble = {
+        "type": "bubble", "size": "kilo",
+        "header": {
+            "type": "box", "layout": "vertical",
+            "backgroundColor": "#E65100", "paddingAll": "14px",
+            "contents": [
+                {"type": "text", "text": "🆕 Registration Request",
+                 "color": "#FFFFFF", "weight": "bold", "size": "lg"},
+                {"type": "text", "text": "Approval required",
+                 "color": "#FFE0B2", "size": "xs", "margin": "xs"},
+            ],
+        },
+        "body": {
+            "type": "box", "layout": "vertical",
+            "paddingAll": "16px", "spacing": "sm",
+            "contents": [
+                {"type": "box", "layout": "horizontal", "contents": [
+                    {"type": "text", "text": "Name", "size": "xs",
+                     "color": "#888888", "flex": 2},
+                    {"type": "text", "text": display_name, "size": "sm",
+                     "weight": "bold", "flex": 4, "wrap": True},
+                ]},
+                {"type": "separator"},
+                {"type": "box", "layout": "horizontal", "contents": [
+                    {"type": "text", "text": "Role", "size": "xs",
+                     "color": "#888888", "flex": 2},
+                    {"type": "text", "text": role_label, "size": "sm",
+                     "weight": "bold", "flex": 4},
+                ]},
+            ],
+        },
+        "footer": {
+            "type": "box", "layout": "horizontal",
+            "spacing": "sm", "paddingAll": "12px",
+            "contents": [
+                {
+                    "type": "button", "style": "primary",
+                    "color": "#1B5E20", "height": "sm", "flex": 1,
+                    "action": {"type": "postback", "label": "✅ Approve",
+                               "data": f"approve_user|{target_user_id}"},
+                },
+                {
+                    "type": "button", "style": "primary",
+                    "color": "#B71C1C", "height": "sm", "flex": 1,
+                    "action": {"type": "postback", "label": "❌ Reject",
+                               "data": f"reject_user|{target_user_id}"},
+                },
+            ],
+        },
+    }
+    return bubble, f"New registration: {display_name} ({role_label})"
+
+
 def _manage_items_flex(records: list[dict]) -> tuple[dict, str]:
     rows = []
     for r in records:
@@ -590,6 +731,84 @@ def _handle_postback(event: dict):
         _reply(reply_token, "Cancelled ✖\nSend 'menu' to start over.")
         return
 
+    # ── Registration: role selection ──────────────────────────────────────────
+    if data.startswith("register_role|"):
+        role         = data.split("|", 1)[1]
+        display_name = _get_display_name(user_id)
+        existing     = _get_user_record(user_id)
+
+        if existing:
+            status = existing.get("status", "pending")
+            if status == "approved":
+                _reply(reply_token,
+                       f"✅ You're already registered as "
+                       f"{existing.get('role','').replace('_',' ').title()}.")
+            else:
+                _reply(reply_token,
+                       f"⏳ Your registration is {status}. Please wait.")
+            return
+
+        # Manager auto-approves themselves
+        if _is_manager(user_id):
+            _register_user(user_id, display_name, role)
+            _update_user_status(user_id, "approved")
+            _reply(reply_token,
+                   f"✅ Welcome, {display_name}!\n"
+                   f"Auto-approved as Manager.\nSend 'menu' to get started.")
+            return
+
+        _register_user(user_id, display_name, role)
+
+        # Notify manager
+        if MANAGER_LINE_ID:
+            bubble, alt = _approval_flex(user_id, display_name, role)
+            _push_message(MANAGER_LINE_ID,
+                          [{"type": "flex", "altText": alt, "contents": bubble}])
+
+        role_label = role.replace("_", " ").title()
+        _reply(reply_token,
+               f"✅ Registration submitted!\n\n"
+               f"Name: {display_name}\n"
+               f"Role: {role_label}\n\n"
+               f"⏳ Waiting for manager approval.\n"
+               f"You'll be notified once approved.")
+        return
+
+    # ── Registration: approve / reject ────────────────────────────────────────
+    if data.startswith("approve_user|") or data.startswith("reject_user|"):
+        if not _is_manager(user_id):
+            _reply(reply_token, "🔒 Only the manager can approve registrations.")
+            return
+
+        action_str, target_user_id = data.split("|", 1)
+        new_status = "approved" if action_str == "approve_user" else "rejected"
+        user_data  = _update_user_status(target_user_id, new_status)
+
+        if not user_data:
+            _reply(reply_token, "❌ User not found.")
+            return
+
+        name       = user_data.get("display_name", target_user_id)
+        role_label = user_data.get("role", "").replace("_", " ").title()
+
+        if new_status == "approved":
+            _push_message(target_user_id, [{
+                "type": "text",
+                "text": (f"✅ Your registration has been approved!\n\n"
+                         f"Welcome, {name}!\n"
+                         f"Role: {role_label}\n\n"
+                         f"Send 'menu' to get started."),
+            }])
+            _reply(reply_token, f"✅ {name} ({role_label}) approved.")
+        else:
+            _push_message(target_user_id, [{
+                "type": "text",
+                "text": ("❌ Your registration was rejected.\n"
+                         "Please contact the manager for more information."),
+            }])
+            _reply(reply_token, f"❌ {name} ({role_label}) rejected.")
+        return
+
     if data.startswith("activate|") or data.startswith("deactivate|"):
         if not _is_manager(user_id):
             _reply(reply_token, "🔒 Only the manager can activate/deactivate items.")
@@ -721,12 +940,38 @@ async def webhook(request: Request):
         reply_token = event.get("replyToken", "")
         user_id     = event.get("source", {}).get("userId", "unknown")
 
-        # ── Postback (Confirm / Cancel) ───────────────────────────────────────
+        # ── Postback (Confirm / Cancel / Register / Approve) ─────────────────
         if event_type == "postback":
             try:
                 _handle_postback(event)
             except Exception as e:
                 print("POSTBACK ERROR:", repr(e))
+            continue
+
+        # ── Follow (user adds bot) ────────────────────────────────────────────
+        if event_type == "follow":
+            try:
+                display_name = _get_display_name(user_id)
+                existing     = _get_user_record(user_id)
+                if not existing:
+                    if _is_manager(user_id):
+                        _register_user(user_id, display_name, "manager")
+                        _update_user_status(user_id, "approved")
+                        _reply(reply_token,
+                               f"✅ Welcome, {display_name}!\n"
+                               f"Auto-approved as Manager.\nSend 'menu' to get started.")
+                    else:
+                        bubble, alt = _welcome_flex(display_name)
+                        _reply_flex(reply_token, bubble, alt)
+                elif existing.get("status") == "approved":
+                    _reply_flex(reply_token, _menu_flex_bubble(),
+                                "📦 Sylvester Warehouse Menu")
+                else:
+                    _reply(reply_token,
+                           f"⏳ Welcome back, {display_name}!\n"
+                           f"Your registration is {existing.get('status')}.")
+            except Exception as e:
+                print("FOLLOW ERROR:", repr(e))
             continue
 
         if event_type != "message":
@@ -750,6 +995,27 @@ async def webhook(request: Request):
         t         = user_text.lower()
 
         try:
+            # 0. Registration gate — skip for manager
+            if not _is_manager(user_id):
+                user_record = _get_user_record(user_id)
+                if not user_record:
+                    display_name = _get_display_name(user_id)
+                    bubble, alt  = _welcome_flex(display_name)
+                    _reply_flex(reply_token, bubble, alt)
+                    continue
+                status = user_record.get("status", "pending")
+                if status == "pending":
+                    _reply(reply_token,
+                           "⏳ Your registration is pending manager approval.\n"
+                           "You'll be notified once approved.")
+                    continue
+                if status == "rejected":
+                    _reply(reply_token,
+                           "❌ Your registration was rejected.\n"
+                           "Please contact the manager.")
+                    continue
+                # status == "approved" → fall through
+
             # 1. Active guided flow (includes awaiting_photo "skip" handling)
             if user_id in PENDING:
                 _handle_pending(user_id, reply_token, user_text)
