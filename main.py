@@ -203,14 +203,8 @@ async def webhook(request: Request):
             message = handle_message(user_text)
             _reply(reply_token, message)
         except Exception as e:
-            err = str(e)
-            # Sanitize raw HTTP response objects (e.g. gspread APIError)
-            if "<Response" in err:
-                err = "Google Sheets error. Please try again."
-            print("ERROR:", err)
-            try:
-                _reply(reply_token, f"Error: {err}")
-            except Exception:
-                pass
+            print("GOOGLE SHEETS ERROR TYPE:", type(e).__name__)
+            print("GOOGLE SHEETS ERROR DETAIL:", repr(e))
+            _reply(reply_token, f"Google Sheets error: {type(e).__name__}: {str(e)}")
 
     return {"status": "ok"}
