@@ -96,6 +96,24 @@ def _get_team_members() -> list[dict]:
     except Exception:
         return []
 
+def _sync_manager_record(user_id: str):
+    """Ensure manager is approved in users sheet and present in team sheet.
+    Safe to call on every message — only writes when something needs fixing."""
+    try:
+        display_name = _get_display_name(user_id)
+        record       = _get_user_record(user_id)
+        role         = record.get("role", "manager") if record else "manager"
+
+        if not record:
+            _register_user(user_id, display_name, role)
+            _update_user_status(user_id, "approved")
+        elif record.get("status") != "approved":
+            _update_user_status(user_id, "approved")
+
+        _add_to_team(user_id, display_name, role)   # skips if already in team
+    except Exception as e:
+        print("MANAGER SYNC ERROR:", repr(e))
+
 
 # ── User registration helpers ─────────────────────────────────────────────────
 
@@ -1111,18 +1129,24 @@ async def webhook(request: Request):
             # whoami — always available, no registration required
             if t == "whoami":
                 display_name = _get_display_name(user_id)
-                is_mgr = _is_manager(user_id)
+                is_mgr       = _is_manager(user_id)
+                if is_mgr:
+                    _sync_manager_record(user_id)   # fix pending status + team
+                record = _get_user_record(user_id)
+                status = record.get("status", "—") if record else "not registered"
                 _reply(reply_token,
                        f"👤 Your LINE Info\n"
                        f"─────────────────────────\n"
-                       f"Name: {display_name}\n"
-                       f"ID:   {user_id}\n\n"
+                       f"Name:   {display_name}\n"
+                       f"ID:     {user_id}\n"
+                       f"Status: {status}\n\n"
                        f"{'✅ You are the manager.' if is_mgr else '❌ Not set as manager.'}\n\n"
-                       f"To set yourself as manager, add this to Railway env vars:\n"
-                       f"MANAGER_LINE_ID = {user_id}")
+                       + ("" if is_mgr else
+                          f"To set yourself as manager, add this to Railway env vars:\n"
+                          f"MANAGER_LINE_ID = {user_id}"))
                 continue
 
-            # 0. Registration gate — skip for manager
+            # 0. Registration gate
             if not _is_manager(user_id):
                 user_record = _get_user_record(user_id)
                 if not user_record:
@@ -1142,6 +1166,9 @@ async def webhook(request: Request):
                            "Please contact the manager.")
                     continue
                 # status == "approved" → fall through
+            else:
+                # Manager: silently ensure record is approved and in team
+                _sync_manager_record(user_id)
 
             # 1. Active guided flow (includes awaiting_photo "skip" handling)
             if user_id in PENDING:
