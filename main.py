@@ -7,53 +7,150 @@ import requests
 from datetime import datetime
 from fastapi import FastAPI, Request, HTTPException
 import gspread
+from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaInMemoryUpload
 
 app = FastAPI()
 
-LINE_CHANNEL_SECRET = os.environ["LINE_CHANNEL_SECRET"]
+LINE_CHANNEL_SECRET     = os.environ["LINE_CHANNEL_SECRET"]
 LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
-LINE_REPLY_URL = "https://api.line.me/v2/bot/message/reply"
+LINE_REPLY_URL          = "https://api.line.me/v2/bot/message/reply"
+LINE_CONTENT_URL        = "https://api-data.line.me/v2/bot/message/{}/content"
+LINE_PROFILE_URL        = "https://api.line.me/v2/bot/profile/{}"
+
+DRIVE_FOLDER_NAME = "Sylvester Stock Proofs"
 
 # ── In-memory state per LINE user ─────────────────────────────────────────────
+# Possible actions: "stock_in" | "stock_out" | "add_item" | "awaiting_photo"
 PENDING: dict[str, dict] = {}
+
+
+# ── Credentials (shared for Sheets + Drive) ───────────────────────────────────
+
+def _credentials() -> Credentials:
+    creds_dict = json.loads(os.environ["GOOGLE_SHEETS_CREDENTIALS"])
+    return Credentials.from_service_account_info(
+        creds_dict,
+        scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ],
+    )
+
 
 # ── Google Sheets ─────────────────────────────────────────────────────────────
 
-def _client() -> gspread.Client:
-    creds_dict = json.loads(os.environ["GOOGLE_SHEETS_CREDENTIALS"])
-    return gspread.service_account_from_dict(creds_dict)
+def _gs_client() -> gspread.Client:
+    return gspread.authorize(_credentials())
 
 def _stock_ws() -> gspread.Worksheet:
-    return _client().open("Sylvester Inventory").worksheet("stock")
+    return _gs_client().open("Sylvester Inventory").worksheet("stock")
 
 def _movements_ws() -> gspread.Worksheet:
-    return _client().open("Sylvester Inventory").worksheet("movements")
+    return _gs_client().open("Sylvester Inventory").worksheet("movements")
+
+
+# ── Google Drive ──────────────────────────────────────────────────────────────
+
+def _drive_service():
+    return build("drive", "v3", credentials=_credentials())
+
+def _get_or_create_folder(service, name: str) -> str:
+    q = f"name='{name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    results = service.files().list(q=q, fields="files(id)").execute()
+    files = results.get("files", [])
+    if files:
+        return files[0]["id"]
+    folder = service.files().create(
+        body={"name": name, "mimeType": "application/vnd.google-apps.folder"},
+        fields="id",
+    ).execute()
+    return folder["id"]
+
+def _upload_to_drive(image_bytes: bytes, filename: str) -> str:
+    """Upload image to Google Drive and return a shareable link."""
+    service   = _drive_service()
+    folder_id = _get_or_create_folder(service, DRIVE_FOLDER_NAME)
+
+    media = MediaInMemoryUpload(image_bytes, mimetype="image/jpeg", resumable=False)
+    file  = service.files().create(
+        body={"name": filename, "parents": [folder_id]},
+        media_body=media,
+        fields="id,webViewLink",
+    ).execute()
+
+    # Make file viewable by anyone with the link
+    service.permissions().create(
+        fileId=file["id"],
+        body={"type": "anyone", "role": "reader"},
+    ).execute()
+
+    return file.get("webViewLink", "")
+
+
+# ── LINE helpers ──────────────────────────────────────────────────────────────
+
+def _get_display_name(user_id: str) -> str:
+    """Fetch LINE display name for a user ID."""
+    try:
+        resp = requests.get(
+            LINE_PROFILE_URL.format(user_id),
+            headers={"Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"},
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            return resp.json().get("displayName", user_id)
+    except Exception as e:
+        print("GET PROFILE ERROR:", repr(e))
+    return user_id  # fallback to ID if profile fetch fails
+
+def _download_line_image(message_id: str) -> bytes:
+    """Download image content from LINE Content API."""
+    resp = requests.get(
+        LINE_CONTENT_URL.format(message_id),
+        headers={"Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"},
+        timeout=30,
+    )
+    if resp.status_code != 200:
+        raise Exception(f"LINE content API error {resp.status_code}")
+    return resp.content
 
 
 # ── Google Sheets command handlers ────────────────────────────────────────────
 
-def cmd_add_item(name: str) -> str:
-    ws = _stock_ws()
+def _log(item: str, move_type: str, qty: int,
+         user_id: str = "", user_name: str = "", photo_link: str = ""):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    _movements_ws().append_row([now, item, move_type, qty, user_id, user_name, photo_link])
+
+def cmd_add_item(name: str, user_id: str = "", user_name: str = "") -> str:
+    ws      = _stock_ws()
     records = ws.get_all_records()
     for r in records:
         if str(r.get("item", "")).lower() == name.lower():
             return f"'{name}' already exists.\nCurrent quantity: {r.get('quantity', 0)}"
     ws.append_row([name, 0])
+    _log(name, "ADD", 0, user_id, user_name)
     return f"✅ Item added: {name}\nQuantity: 0"
 
-def cmd_stock_in(item: str, qty: int) -> str:
-    ws = _stock_ws()
+def cmd_stock_in(item: str, qty: int,
+                 user_id: str = "", user_name: str = "") -> str:
+    ws      = _stock_ws()
     records = ws.get_all_records()
     for i, r in enumerate(records, start=2):
         if str(r.get("item", "")).lower() == item.lower():
             new_qty = int(r.get("quantity", 0)) + qty
             ws.update_cell(i, 2, new_qty)
-            _log(item, "in", qty)
-            return f"✅ Stock IN recorded\nItem: {item}\nAdded: +{qty}\nNew balance: {new_qty}"
+            _log(item, "IN", qty, user_id, user_name)
+            return (f"✅ Stock IN recorded\n"
+                    f"Item: {item}\nAdded: +{qty}\nNew balance: {new_qty}\n"
+                    f"By: {user_name}")
     return f"❌ '{item}' not found.\nAdd it first with: add item {item}"
 
-def cmd_stock_out(item: str, qty: int) -> str:
-    ws = _stock_ws()
+def cmd_stock_out(item: str, qty: int,
+                  user_id: str = "", user_name: str = "") -> str:
+    ws      = _stock_ws()
     records = ws.get_all_records()
     for i, r in enumerate(records, start=2):
         if str(r.get("item", "")).lower() == item.lower():
@@ -62,13 +159,11 @@ def cmd_stock_out(item: str, qty: int) -> str:
                 return f"❌ Insufficient stock.\n'{item}' only has {current} remaining."
             new_qty = current - qty
             ws.update_cell(i, 2, new_qty)
-            _log(item, "out", qty)
-            return f"✅ Stock OUT recorded\nItem: {item}\nRemoved: -{qty}\nNew balance: {new_qty}"
+            _log(item, "OUT", qty, user_id, user_name)
+            return (f"✅ Stock OUT recorded\n"
+                    f"Item: {item}\nRemoved: -{qty}\nNew balance: {new_qty}\n"
+                    f"By: {user_name}")
     return f"❌ '{item}' not found.\nAdd it first with: add item {item}"
-
-def _log(item: str, move_type: str, qty: int):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    _movements_ws().append_row([now, item, move_type, qty])
 
 def _fetch_items() -> list[dict]:
     try:
@@ -100,7 +195,7 @@ def handle_message(text: str) -> str | None:
             return cmd_stock_out(" ".join(parts[2:-1]), int(parts[-1]))
         except ValueError:
             return "Quantity must be a number."
-    return None  # Not a typed command — caller handles
+    return None
 
 
 # ── LINE send helpers ─────────────────────────────────────────────────────────
@@ -110,8 +205,8 @@ def _send(reply_token: str, messages: list[dict]) -> bool:
         "Content-Type": "application/json",
         "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
     }
-    payload = {"replyToken": reply_token, "messages": messages}
-    response = requests.post(LINE_REPLY_URL, headers=headers, json=payload)
+    response = requests.post(LINE_REPLY_URL, headers=headers,
+                             json={"replyToken": reply_token, "messages": messages})
     print("LINE reply status:", response.status_code, response.text)
     if response.status_code >= 400:
         raise Exception(f"LINE API error: {response.status_code} {response.text}")
@@ -124,17 +219,12 @@ def _reply_flex(reply_token: str, bubble: dict, alt_text: str) -> bool:
     return _send(reply_token, [{"type": "flex", "altText": alt_text, "contents": bubble}])
 
 def _reply_with_quick_reply(reply_token: str, text: str, chips: list[str]) -> bool:
-    """Text prompt with tappable Quick Reply chips (max 13, label max 20 chars)."""
     items = [
-        {"type": "action", "action": {"type": "message",
-                                      "label": c[:20], "text": c}}
+        {"type": "action", "action": {"type": "message", "label": c[:20], "text": c}}
         for c in chips[:13]
     ]
-    return _send(reply_token, [{
-        "type": "text",
-        "text": text,
-        "quickReply": {"items": items},
-    }])
+    return _send(reply_token, [{"type": "text", "text": text,
+                                "quickReply": {"items": items}}])
 
 
 # ── Flex bubble builders ──────────────────────────────────────────────────────
@@ -148,8 +238,7 @@ def _menu_flex_bubble() -> dict:
             "action": {"type": "message", "label": label, "text": text},
         }
     return {
-        "type": "bubble",
-        "size": "kilo",
+        "type": "bubble", "size": "kilo",
         "header": {
             "type": "box", "layout": "vertical",
             "backgroundColor": "#1A237E", "paddingAll": "18px",
@@ -172,15 +261,14 @@ def _menu_flex_bubble() -> dict:
         },
     }
 
-
 def _balance_flex_bubble(records: list[dict]) -> dict:
+    rows = []
     if not records:
         rows = [{"type": "text", "text": "No items yet.", "color": "#888888",
                  "size": "sm", "align": "center"}]
     else:
-        rows = []
         for r in records:
-            qty = int(r.get("quantity", 0))
+            qty       = int(r.get("quantity", 0))
             qty_color = "#C62828" if qty == 0 else "#F57C00" if qty < 5 else "#2E7D32"
             rows.append({
                 "type": "box", "layout": "horizontal", "paddingAll": "6px",
@@ -193,8 +281,7 @@ def _balance_flex_bubble(records: list[dict]) -> dict:
             })
             rows.append({"type": "separator"})
         if rows:
-            rows.pop()  # remove trailing separator
-
+            rows.pop()
     return {
         "type": "bubble",
         "header": {
@@ -208,21 +295,18 @@ def _balance_flex_bubble(records: list[dict]) -> dict:
                  "color": "#BBDEFB", "size": "xs", "margin": "xs"},
             ],
         },
-        "body": {
-            "type": "box", "layout": "vertical", "spacing": "none",
-            "paddingAll": "14px", "contents": rows,
-        },
+        "body": {"type": "box", "layout": "vertical", "spacing": "none",
+                 "paddingAll": "14px", "contents": rows},
     }
 
-
 def _items_flex_bubble(records: list[dict]) -> dict:
+    rows = []
     if not records:
         rows = [{"type": "text", "text": "No items yet.", "color": "#888888",
                  "size": "sm", "align": "center"}]
     else:
-        rows = []
         for r in records:
-            qty = int(r.get("quantity", 0))
+            qty         = int(r.get("quantity", 0))
             badge_color = "#C62828" if qty == 0 else "#2E7D32"
             rows.append({
                 "type": "box", "layout": "horizontal",
@@ -238,8 +322,7 @@ def _items_flex_bubble(records: list[dict]) -> dict:
                             "cornerRadius": "8px", "paddingAll": "4px",
                             "contents": [{
                                 "type": "text", "text": str(qty),
-                                "size": "xs", "color": "#FFFFFF",
-                                "align": "center",
+                                "size": "xs", "color": "#FFFFFF", "align": "center",
                             }],
                         }],
                     },
@@ -248,7 +331,6 @@ def _items_flex_bubble(records: list[dict]) -> dict:
             rows.append({"type": "separator"})
         if rows:
             rows.pop()
-
     return {
         "type": "bubble",
         "header": {
@@ -261,24 +343,19 @@ def _items_flex_bubble(records: list[dict]) -> dict:
                  "color": "#B2DFDB", "size": "xs", "margin": "xs"},
             ],
         },
-        "body": {
-            "type": "box", "layout": "vertical", "spacing": "none",
-            "paddingAll": "14px", "contents": rows,
-        },
+        "body": {"type": "box", "layout": "vertical", "spacing": "none",
+                 "paddingAll": "14px", "contents": rows},
     }
 
-
-def _confirm_flex_bubble(action: str, item: str, qty: int | None) -> dict:
+def _confirm_flex_bubble(action: str, item: str, qty: int | None) -> tuple[dict, str]:
     titles  = {"stock_in": "➕ Stock In", "stock_out": "➖ Stock Out",
                "add_item": "🆕 Add Item"}
-    colors  = {"stock_in": "#1B5E20", "stock_out": "#B71C1C",
-               "add_item": "#4A148C"}
+    colors  = {"stock_in": "#1B5E20", "stock_out": "#B71C1C", "add_item": "#4A148C"}
     hdr_col = colors[action]
 
     if action == "add_item":
         body_rows = [
-            {"type": "text", "text": "New item to add:", "size": "xs",
-             "color": "#888888"},
+            {"type": "text", "text": "New item to add:", "size": "xs", "color": "#888888"},
             {"type": "text", "text": item, "size": "xl",
              "weight": "bold", "color": "#333333", "margin": "sm"},
         ]
@@ -286,27 +363,22 @@ def _confirm_flex_bubble(action: str, item: str, qty: int | None) -> dict:
     else:
         symbol = "+" if action == "stock_in" else "−"
         body_rows = [
-            {"type": "box", "layout": "horizontal",
-             "contents": [
-                 {"type": "text", "text": "Item", "size": "xs",
-                  "color": "#888888", "flex": 2},
-                 {"type": "text", "text": item, "size": "sm",
-                  "weight": "bold", "color": "#333333", "flex": 3},
-             ]},
+            {"type": "box", "layout": "horizontal", "contents": [
+                {"type": "text", "text": "Item", "size": "xs", "color": "#888888", "flex": 2},
+                {"type": "text", "text": item, "size": "sm",
+                 "weight": "bold", "color": "#333333", "flex": 3},
+            ]},
             {"type": "separator", "margin": "sm"},
-            {"type": "box", "layout": "horizontal", "margin": "sm",
-             "contents": [
-                 {"type": "text", "text": "Qty", "size": "xs",
-                  "color": "#888888", "flex": 2},
-                 {"type": "text", "text": f"{symbol}{qty}",
-                  "size": "sm", "weight": "bold", "color": hdr_col, "flex": 3},
-             ]},
+            {"type": "box", "layout": "horizontal", "margin": "sm", "contents": [
+                {"type": "text", "text": "Qty", "size": "xs", "color": "#888888", "flex": 2},
+                {"type": "text", "text": f"{symbol}{qty}",
+                 "size": "sm", "weight": "bold", "color": hdr_col, "flex": 3},
+            ]},
         ]
-        alt = f"Confirm {action.replace('_',' ')}: {item} {symbol}{qty}?"
+        alt = f"Confirm {action.replace('_', ' ')}: {item} {symbol}{qty}?"
 
-    return {
-        "type": "bubble",
-        "size": "kilo",
+    bubble = {
+        "type": "bubble", "size": "kilo",
         "header": {
             "type": "box", "layout": "vertical",
             "backgroundColor": hdr_col, "paddingAll": "14px",
@@ -317,46 +389,38 @@ def _confirm_flex_bubble(action: str, item: str, qty: int | None) -> dict:
                  "color": "#FFFFFF", "size": "xs", "margin": "xs"},
             ],
         },
-        "body": {
-            "type": "box", "layout": "vertical",
-            "paddingAll": "16px", "spacing": "sm",
-            "contents": body_rows,
-        },
+        "body": {"type": "box", "layout": "vertical",
+                 "paddingAll": "16px", "spacing": "sm", "contents": body_rows},
         "footer": {
             "type": "box", "layout": "horizontal",
             "spacing": "sm", "paddingAll": "12px",
             "contents": [
-                {
-                    "type": "button", "style": "primary",
-                    "color": "#1B5E20", "height": "sm", "flex": 1,
-                    "action": {"type": "postback", "label": "✅ Confirm",
-                               "data": f"confirm_{action}"},
-                },
-                {
-                    "type": "button", "style": "primary",
-                    "color": "#B71C1C", "height": "sm", "flex": 1,
-                    "action": {"type": "postback", "label": "❌ Cancel",
-                               "data": "cancel"},
-                },
+                {"type": "button", "style": "primary", "color": "#1B5E20",
+                 "height": "sm", "flex": 1,
+                 "action": {"type": "postback", "label": "✅ Confirm",
+                            "data": f"confirm_{action}"}},
+                {"type": "button", "style": "primary", "color": "#B71C1C",
+                 "height": "sm", "flex": 1,
+                 "action": {"type": "postback", "label": "❌ Cancel", "data": "cancel"}},
             ],
         },
-    }, alt
+    }
+    return bubble, alt
 
 
 # ── Step-by-step state machine ────────────────────────────────────────────────
 
 def _start_flow(user_id: str, action: str, reply_token: str):
     PENDING[user_id] = {"action": action, "item": None, "qty": None}
-
     if action in ("stock_in", "stock_out"):
-        records = _fetch_items()
+        records    = _fetch_items()
         item_names = [r["item"] for r in records if r.get("item")]
-        prompt = ("➕ Select item to add stock:" if action == "stock_in"
-                  else "➖ Select item to remove stock:")
+        prompt     = ("➕ Select item to add stock:" if action == "stock_in"
+                      else "➖ Select item to remove stock:")
         if item_names:
             _reply_with_quick_reply(reply_token, prompt, item_names)
         else:
-            _reply(reply_token, f"{prompt}\n\n(No items yet — type a name or add items first)")
+            _reply(reply_token, f"{prompt}\n\n(No items yet — add items first)")
     else:
         _reply(reply_token, "🆕 Add Item\n\nEnter the new item name:")
 
@@ -366,7 +430,20 @@ def _handle_pending(user_id: str, reply_token: str, user_text: str):
     action  = pending["action"]
     t       = user_text.strip().lower()
 
-    # Escape hatch at any step
+    # ── Awaiting photo after stock in ────────────────────────────────────────
+    if action == "awaiting_photo":
+        if t == "skip":
+            PENDING.pop(user_id, None)
+            _reply(reply_token, "✅ Done.\nStock IN saved without photo.")
+        else:
+            _reply_with_quick_reply(
+                reply_token,
+                "📸 Please send a photo as proof,\nor tap Skip to finish.",
+                ["Skip 📷"],
+            )
+        return
+
+    # ── Escape hatch ─────────────────────────────────────────────────────────
     if t in ("cancel", "menu", "hi", "start"):
         PENDING.pop(user_id, None)
         if t in ("menu", "hi", "start"):
@@ -378,7 +455,7 @@ def _handle_pending(user_id: str, reply_token: str, user_text: str):
             _reply(reply_token, "Cancelled ✖\nSend 'menu' to start over.")
         return
 
-    # Step 1 — waiting for item name
+    # ── Step 1: item name ────────────────────────────────────────────────────
     if pending["item"] is None:
         item = user_text.strip()
         if not item:
@@ -392,7 +469,7 @@ def _handle_pending(user_id: str, reply_token: str, user_text: str):
             _reply(reply_token, f"Item: {item}\n\nEnter quantity:")
         return
 
-    # Step 2 — waiting for quantity (stock_in / stock_out only)
+    # ── Step 2: quantity (stock_in / stock_out only) ─────────────────────────
     if pending["qty"] is None and action in ("stock_in", "stock_out"):
         try:
             qty = int(user_text.strip())
@@ -426,14 +503,41 @@ def _handle_postback(event: dict):
             _reply(reply_token, "⚠️ Session expired. Please start over.")
             return
 
+        # Fetch display name for audit trail
+        user_name = _get_display_name(user_id)
+
         try:
             if data == "confirm_stock_in":
-                msg = cmd_stock_in(item, qty)
+                msg = cmd_stock_in(item, qty, user_id, user_name)
+                # Set awaiting_photo state — stock is already saved
+                PENDING[user_id] = {
+                    "action":    "awaiting_photo",
+                    "item":      item,
+                    "qty":       qty,
+                    "user_id":   user_id,
+                    "user_name": user_name,
+                }
+                # Reply with success + photo prompt in one shot
+                _send(reply_token, [
+                    {"type": "text", "text": msg},
+                    {
+                        "type": "text",
+                        "text": "📸 Upload a photo as proof\n(or tap Skip to finish)",
+                        "quickReply": {"items": [
+                            {"type": "action", "action": {
+                                "type": "message", "label": "Skip 📷", "text": "skip"}}
+                        ]},
+                    },
+                ])
+
             elif data == "confirm_stock_out":
-                msg = cmd_stock_out(item, qty)
-            else:
-                msg = cmd_add_item(item)
-            _reply(reply_token, msg)
+                msg = cmd_stock_out(item, qty, user_id, user_name)
+                _reply(reply_token, msg)
+
+            else:  # confirm_add_item
+                msg = cmd_add_item(item, user_id, user_name)
+                _reply(reply_token, msg)
+
         except Exception as e:
             print("CONFIRM ERROR TYPE:", type(e).__name__)
             print("CONFIRM ERROR DETAIL:", repr(e))
@@ -441,6 +545,30 @@ def _handle_postback(event: dict):
             if "<Response" in err:
                 err = "Google Sheets error. Please try again."
             _reply(reply_token, f"Error: {err}")
+
+
+def _handle_photo(user_id: str, reply_token: str, message_id: str):
+    """Called when user sends an image while in awaiting_photo state."""
+    pending   = PENDING.pop(user_id, {})
+    item      = pending.get("item", "unknown")
+    user_name = pending.get("user_name", user_id)
+
+    try:
+        image_bytes = _download_line_image(message_id)
+        filename    = f"stock_in_{item}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+        photo_link  = _upload_to_drive(image_bytes, filename)
+
+        # Log photo reference separately
+        _log(item, "PHOTO", 0, user_id, user_name, photo_link)
+
+        _reply(reply_token,
+               f"📸 Photo saved!\n\n✅ Stock IN for '{item}' is complete.\n{photo_link}")
+
+    except Exception as e:
+        print("PHOTO UPLOAD ERROR TYPE:", type(e).__name__)
+        print("PHOTO UPLOAD ERROR DETAIL:", repr(e))
+        _reply(reply_token,
+               "⚠️ Photo could not be saved, but stock IN was already recorded.\n✅ Done.")
 
 
 # ── Signature verification ────────────────────────────────────────────────────
@@ -475,7 +603,7 @@ async def webhook(request: Request):
         reply_token = event.get("replyToken", "")
         user_id     = event.get("source", {}).get("userId", "unknown")
 
-        # ── Postback: Confirm / Cancel ────────────────────────────────────────
+        # ── Postback (Confirm / Cancel) ───────────────────────────────────────
         if event_type == "postback":
             try:
                 _handle_postback(event)
@@ -483,14 +611,28 @@ async def webhook(request: Request):
                 print("POSTBACK ERROR:", repr(e))
             continue
 
-        if event_type != "message" or event["message"].get("type") != "text":
+        if event_type != "message":
+            continue
+
+        msg_type = event["message"].get("type")
+
+        # ── Image (photo proof for stock in) ─────────────────────────────────
+        if msg_type == "image":
+            if PENDING.get(user_id, {}).get("action") == "awaiting_photo":
+                try:
+                    _handle_photo(user_id, reply_token, event["message"]["id"])
+                except Exception as e:
+                    print("PHOTO ERROR:", repr(e))
+            continue
+
+        if msg_type != "text":
             continue
 
         user_text = event["message"]["text"].strip()
         t         = user_text.lower()
 
         try:
-            # 1. Active guided flow
+            # 1. Active guided flow (includes awaiting_photo "skip" handling)
             if user_id in PENDING:
                 _handle_pending(user_id, reply_token, user_text)
                 continue
@@ -498,47 +640,38 @@ async def webhook(request: Request):
             # 2. Menu
             if t in ("menu", "hi", "start"):
                 try:
-                    _reply_flex(reply_token, _menu_flex_bubble(),
-                                "📦 Sylvester Warehouse Menu")
+                    _reply_flex(reply_token, _menu_flex_bubble(), "📦 Sylvester Warehouse Menu")
                 except Exception as e:
                     print("FLEX MENU ERROR:", repr(e))
                     _reply(reply_token, MENU_TEXT)
                 continue
 
-            # 3. Stock Balance → Flex card
+            # 3. Stock Balance
             if t == "stock balance":
                 records = _fetch_items()
-                _reply_flex(reply_token, _balance_flex_bubble(records),
-                            "📦 Stock Balance")
+                _reply_flex(reply_token, _balance_flex_bubble(records), "📦 Stock Balance")
                 continue
 
-            # 4. Items list → Flex card
+            # 4. Items list
             if t == "items":
                 records = _fetch_items()
-                _reply_flex(reply_token, _items_flex_bubble(records),
-                            "📋 Item List")
+                _reply_flex(reply_token, _items_flex_bubble(records), "📋 Item List")
                 continue
 
-            # 5. Bare action buttons → start guided flow
+            # 5. Bare button taps → start guided flow
             if t == "stock in":
                 _start_flow(user_id, "stock_in", reply_token)
                 continue
-
             if t == "stock out":
                 _start_flow(user_id, "stock_out", reply_token)
                 continue
-
             if t == "add item":
                 _start_flow(user_id, "add_item", reply_token)
                 continue
 
             # 6. Full typed commands (backup)
             msg = handle_message(user_text)
-            if msg:
-                _reply(reply_token, msg)
-            else:
-                _reply(reply_token,
-                       "❓ Unknown command.\nSend 'menu' to see options.")
+            _reply(reply_token, msg if msg else "❓ Unknown command.\nSend 'menu' to see options.")
 
         except Exception as e:
             print("ERROR TYPE:", type(e).__name__)
