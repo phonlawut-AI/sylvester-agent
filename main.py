@@ -62,6 +62,28 @@ def _movements_ws() -> gspread.Worksheet:
 def _users_ws() -> gspread.Worksheet:
     return _gs_client().open("Sylvester Inventory").worksheet("users")
 
+def _team_ws() -> gspread.Worksheet:
+    return _gs_client().open("Sylvester Inventory").worksheet("team")
+
+
+# ── Team helpers ──────────────────────────────────────────────────────────────
+
+def _add_to_team(user_id: str, display_name: str, role: str):
+    """Add member to team sheet on approval. Skips if already exists."""
+    ws      = _team_ws()
+    records = ws.get_all_records()
+    for r in records:
+        if r.get("user_id") == user_id:
+            return  # already in team
+    start_date = datetime.now().strftime("%Y-%m-%d")
+    ws.append_row([user_id, display_name, role, start_date, "active"])
+
+def _get_team_members() -> list[dict]:
+    try:
+        return _team_ws().get_all_records()
+    except Exception:
+        return []
+
 
 # ── User registration helpers ─────────────────────────────────────────────────
 
@@ -325,6 +347,7 @@ def _menu_flex_bubble() -> dict:
                 _btn("➕ Stock In",       "stock in",       "#2E7D32"),
                 _btn("➖ Stock Out",      "stock out",      "#C62828"),
                 _btn("🆕 Add New Item",  "add item",       "#6A1B9A"),
+                _btn("👥 Team",          "team",           "#263238"),
                 _btn("🔧 Manage Items",  "manage items",   "#37474F"),
             ],
         },
@@ -415,6 +438,75 @@ def _items_flex_bubble(records: list[dict]) -> dict:
         "body": {"type": "box", "layout": "vertical", "spacing": "none",
                  "paddingAll": "14px", "contents": rows},
     }
+
+def _team_flex(members: list[dict]) -> tuple[dict, str]:
+    role_colors = {
+        "manager":              "#4A148C",
+        "warehouse_supervisor": "#00695C",
+        "warehouse_staff":      "#1565C0",
+    }
+    rows = []
+    if not members:
+        rows = [{"type": "text", "text": "No team members yet.",
+                 "color": "#888888", "size": "sm", "align": "center"}]
+    else:
+        for r in members:
+            role      = r.get("role", "")
+            color     = role_colors.get(role, "#455A64")
+            role_label = role.replace("_", " ").title()
+            is_active  = r.get("status", "active") == "active"
+            rows.append({
+                "type": "box", "layout": "vertical",
+                "paddingTop": "8px", "paddingBottom": "8px",
+                "contents": [
+                    {"type": "box", "layout": "horizontal", "contents": [
+                        {"type": "text", "text": r.get("display_name", ""),
+                         "size": "sm", "weight": "bold", "flex": 4,
+                         "color": "#333333" if is_active else "#AAAAAA"},
+                        {
+                            "type": "box", "layout": "vertical", "flex": 3,
+                            "contents": [{
+                                "type": "box", "layout": "vertical",
+                                "backgroundColor": color if is_active else "#9E9E9E",
+                                "cornerRadius": "8px", "paddingAll": "3px",
+                                "contents": [{
+                                    "type": "text", "text": role_label,
+                                    "size": "xxs", "color": "#FFFFFF",
+                                    "align": "center",
+                                }],
+                            }],
+                        },
+                    ]},
+                    {"type": "text",
+                     "text": f"Since {r.get('start_date', '')}",
+                     "size": "xxs", "color": "#AAAAAA", "margin": "xs"},
+                ],
+            })
+            rows.append({"type": "separator"})
+        if rows:
+            rows.pop()
+
+    active_count = sum(1 for r in members if r.get("status", "active") == "active")
+    bubble = {
+        "type": "bubble",
+        "header": {
+            "type": "box", "layout": "vertical",
+            "backgroundColor": "#263238", "paddingAll": "14px",
+            "contents": [
+                {"type": "text", "text": "👥 Team Members", "color": "#FFFFFF",
+                 "weight": "bold", "size": "lg"},
+                {"type": "text",
+                 "text": f"{active_count} active · {len(members)} total",
+                 "color": "#B0BEC5", "size": "xs", "margin": "xs"},
+            ],
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "spacing": "none",
+            "paddingAll": "12px", "contents": rows,
+        },
+    }
+    return bubble, "👥 Team Members"
+
 
 def _welcome_flex(display_name: str) -> tuple[dict, str]:
     def _role_btn(label: str, role: str, color: str) -> dict:
@@ -752,6 +844,7 @@ def _handle_postback(event: dict):
         if _is_manager(user_id):
             _register_user(user_id, display_name, role)
             _update_user_status(user_id, "approved")
+            _add_to_team(user_id, display_name, role)
             _reply(reply_token,
                    f"✅ Welcome, {display_name}!\n"
                    f"Auto-approved as Manager.\nSend 'menu' to get started.")
@@ -792,6 +885,8 @@ def _handle_postback(event: dict):
         role_label = user_data.get("role", "").replace("_", " ").title()
 
         if new_status == "approved":
+            _add_to_team(target_user_id, name,
+                         user_data.get("role", ""))
             _push_message(target_user_id, [{
                 "type": "text",
                 "text": (f"✅ Your registration has been approved!\n\n"
@@ -957,6 +1052,7 @@ async def webhook(request: Request):
                     if _is_manager(user_id):
                         _register_user(user_id, display_name, "manager")
                         _update_user_status(user_id, "approved")
+                        _add_to_team(user_id, display_name, "manager")
                         _reply(reply_token,
                                f"✅ Welcome, {display_name}!\n"
                                f"Auto-approved as Manager.\nSend 'menu' to get started.")
@@ -1042,7 +1138,14 @@ async def webhook(request: Request):
                 _reply_flex(reply_token, _items_flex_bubble(records), "📋 Item List")
                 continue
 
-            # 5. Manage items (manager only)
+            # 5. Team list
+            if t == "team":
+                members = _get_team_members()
+                bubble, alt = _team_flex(members)
+                _reply_flex(reply_token, bubble, alt)
+                continue
+
+            # 6. Manage items (manager only)
             if t == "manage items":
                 if not _is_manager(user_id):
                     _reply(reply_token, "🔒 Only the manager can manage items.")
