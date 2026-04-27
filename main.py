@@ -13,13 +13,21 @@ from googleapiclient.http import MediaInMemoryUpload
 
 app = FastAPI()
 
-LINE_CHANNEL_SECRET     = os.environ["LINE_CHANNEL_SECRET"]
+LINE_CHANNEL_SECRET       = os.environ["LINE_CHANNEL_SECRET"]
 LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
-LINE_REPLY_URL          = "https://api.line.me/v2/bot/message/reply"
-LINE_CONTENT_URL        = "https://api-data.line.me/v2/bot/message/{}/content"
-LINE_PROFILE_URL        = "https://api.line.me/v2/bot/profile/{}"
+LINE_REPLY_URL            = "https://api.line.me/v2/bot/message/reply"
+LINE_CONTENT_URL          = "https://api-data.line.me/v2/bot/message/{}/content"
+LINE_PROFILE_URL          = "https://api.line.me/v2/bot/profile/{}"
 
 DRIVE_FOLDER_NAME = "Sylvester Stock Proofs"
+
+# Manager LINE user ID — set in Railway env vars.
+# Leave empty to allow anyone to manage items (useful for testing).
+MANAGER_LINE_ID = os.environ.get("MANAGER_LINE_ID", "")
+
+
+def _is_manager(user_id: str) -> bool:
+    return not MANAGER_LINE_ID or user_id == MANAGER_LINE_ID
 
 # ── In-memory state per LINE user ─────────────────────────────────────────────
 # Possible actions: "stock_in" | "stock_out" | "add_item" | "awaiting_photo"
@@ -130,9 +138,9 @@ def cmd_add_item(name: str, user_id: str = "", user_name: str = "") -> str:
     for r in records:
         if str(r.get("item", "")).lower() == name.lower():
             return f"'{name}' already exists.\nCurrent quantity: {r.get('quantity', 0)}"
-    ws.append_row([name, 0])
+    ws.append_row([name, 0, "active"])
     _log(name, "ADD", 0, user_id, user_name)
-    return f"✅ Item added: {name}\nQuantity: 0"
+    return f"✅ Item added: {name}\nQuantity: 0\nStatus: active"
 
 def cmd_stock_in(item: str, qty: int,
                  user_id: str = "", user_name: str = "") -> str:
@@ -140,6 +148,8 @@ def cmd_stock_in(item: str, qty: int,
     records = ws.get_all_records()
     for i, r in enumerate(records, start=2):
         if str(r.get("item", "")).lower() == item.lower():
+            if r.get("status", "active") != "active":
+                return f"❌ '{item}' is inactive.\nAsk the manager to activate it first."
             new_qty = int(r.get("quantity", 0)) + qty
             ws.update_cell(i, 2, new_qty)
             _log(item, "IN", qty, user_id, user_name)
@@ -154,6 +164,8 @@ def cmd_stock_out(item: str, qty: int,
     records = ws.get_all_records()
     for i, r in enumerate(records, start=2):
         if str(r.get("item", "")).lower() == item.lower():
+            if r.get("status", "active") != "active":
+                return f"❌ '{item}' is inactive.\nAsk the manager to activate it first."
             current = int(r.get("quantity", 0))
             if qty > current:
                 return f"❌ Insufficient stock.\n'{item}' only has {current} remaining."
@@ -165,9 +177,22 @@ def cmd_stock_out(item: str, qty: int,
                     f"By: {user_name}")
     return f"❌ '{item}' not found.\nAdd it first with: add item {item}"
 
-def _fetch_items() -> list[dict]:
+def _set_item_status(item_name: str, new_status: str) -> str:
+    ws      = _stock_ws()
+    records = ws.get_all_records()
+    for i, r in enumerate(records, start=2):
+        if str(r.get("item", "")).lower() == item_name.lower():
+            ws.update_cell(i, 3, new_status)   # col 3 = status
+            icon = "✅" if new_status == "active" else "🔴"
+            return f"{icon} '{item_name}' is now {new_status}."
+    return f"❌ Item '{item_name}' not found."
+
+def _fetch_items(active_only: bool = False) -> list[dict]:
     try:
-        return _stock_ws().get_all_records()
+        records = _stock_ws().get_all_records()
+        if active_only:
+            return [r for r in records if r.get("status", "active") == "active"]
+        return records
     except Exception:
         return []
 
@@ -252,11 +277,12 @@ def _menu_flex_bubble() -> dict:
         "body": {
             "type": "box", "layout": "vertical", "spacing": "sm", "paddingAll": "14px",
             "contents": [
-                _btn("📊 Stock Balance", "stock balance", "#1565C0"),
-                _btn("📋 Items List",    "items",         "#00695C"),
-                _btn("➕ Stock In",      "stock in",      "#2E7D32"),
-                _btn("➖ Stock Out",     "stock out",     "#C62828"),
-                _btn("🆕 Add New Item", "add item",      "#6A1B9A"),
+                _btn("📊 Stock Balance",  "stock balance",  "#1565C0"),
+                _btn("📋 Items List",     "items",          "#00695C"),
+                _btn("➕ Stock In",       "stock in",       "#2E7D32"),
+                _btn("➖ Stock Out",      "stock out",      "#C62828"),
+                _btn("🆕 Add New Item",  "add item",       "#6A1B9A"),
+                _btn("🔧 Manage Items",  "manage items",   "#37474F"),
             ],
         },
     }
@@ -347,6 +373,76 @@ def _items_flex_bubble(records: list[dict]) -> dict:
                  "paddingAll": "14px", "contents": rows},
     }
 
+def _manage_items_flex(records: list[dict]) -> tuple[dict, str]:
+    rows = []
+    for r in records:
+        item      = r.get("item", "")
+        status    = r.get("status", "active")
+        is_active = status == "active"
+
+        rows.append({
+            "type": "box", "layout": "horizontal",
+            "paddingTop": "8px", "paddingBottom": "8px",
+            "contents": [
+                {"type": "text", "text": item, "size": "sm", "flex": 4,
+                 "color": "#333333" if is_active else "#AAAAAA",
+                 "gravity": "center"},
+                {
+                    "type": "box", "layout": "vertical", "flex": 2,
+                    "justifyContent": "center",
+                    "contents": [{
+                        "type": "box", "layout": "vertical",
+                        "backgroundColor": "#2E7D32" if is_active else "#9E9E9E",
+                        "cornerRadius": "10px", "paddingAll": "4px",
+                        "contents": [{
+                            "type": "text",
+                            "text": "Active" if is_active else "Inactive",
+                            "size": "xxs", "color": "#FFFFFF", "align": "center",
+                        }],
+                    }],
+                },
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "color": "#B71C1C" if is_active else "#1B5E20",
+                    "height": "sm", "flex": 2,
+                    "action": {
+                        "type": "postback",
+                        "label": "Deactivate" if is_active else "Activate",
+                        "data": f"deactivate|{item}" if is_active else f"activate|{item}",
+                    },
+                },
+            ],
+        })
+        rows.append({"type": "separator"})
+
+    if rows:
+        rows.pop()  # remove trailing separator
+
+    if not rows:
+        rows = [{"type": "text", "text": "No items yet.",
+                 "size": "sm", "color": "#888888", "align": "center"}]
+
+    bubble = {
+        "type": "bubble",
+        "header": {
+            "type": "box", "layout": "vertical",
+            "backgroundColor": "#37474F", "paddingAll": "14px",
+            "contents": [
+                {"type": "text", "text": "🔧 Manage Items", "color": "#FFFFFF",
+                 "weight": "bold", "size": "lg"},
+                {"type": "text", "text": "Manager: activate or deactivate items",
+                 "color": "#CFD8DC", "size": "xs", "margin": "xs"},
+            ],
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "spacing": "none",
+            "paddingAll": "12px", "contents": rows,
+        },
+    }
+    return bubble, "🔧 Manage Items"
+
+
 def _confirm_flex_bubble(action: str, item: str, qty: int | None) -> tuple[dict, str]:
     titles  = {"stock_in": "➕ Stock In", "stock_out": "➖ Stock Out",
                "add_item": "🆕 Add Item"}
@@ -413,7 +509,7 @@ def _confirm_flex_bubble(action: str, item: str, qty: int | None) -> tuple[dict,
 def _start_flow(user_id: str, action: str, reply_token: str):
     PENDING[user_id] = {"action": action, "item": None, "qty": None}
     if action in ("stock_in", "stock_out"):
-        records    = _fetch_items()
+        records    = _fetch_items(active_only=True)
         item_names = [r["item"] for r in records if r.get("item")]
         prompt     = ("➕ Select item to add stock:" if action == "stock_in"
                       else "➖ Select item to remove stock:")
@@ -492,6 +588,28 @@ def _handle_postback(event: dict):
     if data == "cancel":
         PENDING.pop(user_id, None)
         _reply(reply_token, "Cancelled ✖\nSend 'menu' to start over.")
+        return
+
+    if data.startswith("activate|") or data.startswith("deactivate|"):
+        if not _is_manager(user_id):
+            _reply(reply_token, "🔒 Only the manager can activate/deactivate items.")
+            return
+        action_str, item_name = data.split("|", 1)
+        new_status = "active" if action_str == "activate" else "inactive"
+        user_name  = _get_display_name(user_id)
+        try:
+            msg = _set_item_status(item_name, new_status)
+            _log(item_name, new_status.upper(), 0, user_id, user_name)
+            # Refresh the manage items card
+            records = _fetch_items()
+            bubble, alt = _manage_items_flex(records)
+            _send(reply_token, [
+                {"type": "text", "text": msg},
+                {"type": "flex", "altText": alt, "contents": bubble},
+            ])
+        except Exception as e:
+            print("TOGGLE STATUS ERROR:", repr(e))
+            _reply(reply_token, f"Error updating status: {e}")
         return
 
     if data in ("confirm_stock_in", "confirm_stock_out", "confirm_add_item"):
@@ -658,7 +776,17 @@ async def webhook(request: Request):
                 _reply_flex(reply_token, _items_flex_bubble(records), "📋 Item List")
                 continue
 
-            # 5. Bare button taps → start guided flow
+            # 5. Manage items (manager only)
+            if t == "manage items":
+                if not _is_manager(user_id):
+                    _reply(reply_token, "🔒 Only the manager can manage items.")
+                    continue
+                records = _fetch_items()
+                bubble, alt = _manage_items_flex(records)
+                _reply_flex(reply_token, bubble, alt)
+                continue
+
+            # 6. Bare button taps → start guided flow
             if t == "stock in":
                 _start_flow(user_id, "stock_in", reply_token)
                 continue
