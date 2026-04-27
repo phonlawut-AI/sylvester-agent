@@ -59,11 +59,23 @@ def _stock_ws() -> gspread.Worksheet:
 def _movements_ws() -> gspread.Worksheet:
     return _gs_client().open("Sylvester Inventory").worksheet("movements")
 
+def _ensure_sheet(name: str, headers: list[str]) -> gspread.Worksheet:
+    """Return worksheet, creating it with headers if it does not exist yet."""
+    ss = _gs_client().open("Sylvester Inventory")
+    try:
+        return ss.worksheet(name)
+    except gspread.exceptions.WorksheetNotFound:
+        ws = ss.add_worksheet(title=name, rows=1000, cols=len(headers))
+        ws.append_row(headers)
+        return ws
+
 def _users_ws() -> gspread.Worksheet:
-    return _gs_client().open("Sylvester Inventory").worksheet("users")
+    return _ensure_sheet("users",
+                         ["user_id", "display_name", "role", "status", "registered_at"])
 
 def _team_ws() -> gspread.Worksheet:
-    return _gs_client().open("Sylvester Inventory").worksheet("team")
+    return _ensure_sheet("team",
+                         ["user_id", "display_name", "role", "start_date", "status"])
 
 
 # ── Team helpers ──────────────────────────────────────────────────────────────
@@ -1040,7 +1052,12 @@ async def webhook(request: Request):
             try:
                 _handle_postback(event)
             except Exception as e:
-                print("POSTBACK ERROR:", repr(e))
+                print("POSTBACK ERROR TYPE:", type(e).__name__)
+                print("POSTBACK ERROR DETAIL:", repr(e))
+                try:
+                    _reply(reply_token, f"⚠️ Something went wrong.\nError: {type(e).__name__}: {e}")
+                except Exception:
+                    pass
             continue
 
         # ── Follow (user adds bot) ────────────────────────────────────────────
