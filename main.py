@@ -51,7 +51,14 @@ def _credentials() -> Credentials:
 # ── Google Sheets ─────────────────────────────────────────────────────────────
 
 def _gs_client() -> gspread.Client:
-    return gspread.authorize(_credentials())
+    creds_dict = json.loads(os.environ["GOOGLE_SHEETS_CREDENTIALS"])
+    return gspread.service_account_from_dict(
+        creds_dict,
+        scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ],
+    )
 
 def _stock_ws() -> gspread.Worksheet:
     return _gs_client().open("Sylvester Inventory").worksheet("stock")
@@ -103,6 +110,8 @@ def _sync_manager_record(user_id: str):
         display_name = _get_display_name(user_id)
         record       = _get_user_record(user_id)
         role         = record.get("role", "manager") if record else "manager"
+        print(f"[SYNC MANAGER] id={user_id!r} record={'found' if record else 'none'} "
+              f"status={record.get('status') if record else 'n/a'!r}")
 
         if not record:
             _register_user(user_id, display_name, role)
@@ -110,9 +119,10 @@ def _sync_manager_record(user_id: str):
         elif record.get("status") != "approved":
             _update_user_status(user_id, "approved")
 
-        _add_to_team(user_id, display_name, role)   # skips if already in team
+        _add_to_team(user_id, display_name, role)
+        print("[SYNC MANAGER] done")
     except Exception as e:
-        print("MANAGER SYNC ERROR:", repr(e))
+        print(f"MANAGER SYNC ERROR type={type(e).__name__}: {repr(e)}")
 
 
 # ── User registration helpers ─────────────────────────────────────────────────
@@ -134,10 +144,16 @@ def _register_user(user_id: str, display_name: str, role: str):
 def _update_user_status(user_id: str, new_status: str) -> dict | None:
     ws      = _users_ws()
     records = ws.get_all_records()
+    print(f"[STATUS UPDATE] target={user_id!r} rows={len(records)}")
     for i, r in enumerate(records, start=2):
-        if r.get("user_id") == user_id:
-            ws.update_cell(i, 4, new_status)   # col 4 = status
+        stored = str(r.get("user_id", "")).strip()
+        if stored == user_id.strip():
+            print(f"[STATUS UPDATE] found row={i} current={r.get('status')!r}")
+            ws.update_cell(i, 4, new_status)
+            print(f"[STATUS UPDATE] written {new_status!r} to D{i}")
             return r
+    ids = [str(r.get("user_id", "")) for r in records]
+    print(f"[STATUS UPDATE] not found. stored ids: {ids}")
     return None
 
 
