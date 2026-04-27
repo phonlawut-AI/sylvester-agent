@@ -29,7 +29,7 @@ def _movements_ws() -> gspread.Worksheet:
     return _client().open("Sylvester Inventory").worksheet("movements")
 
 
-# ── Menu ──────────────────────────────────────────────────────────────────────
+# ── Menu Flex Message ────────────────────────────────────────────────────────
 
 MENU_TEXT = """📦 Sylvester Warehouse Menu
 ─────────────────────────
@@ -38,6 +38,73 @@ MENU_TEXT = """📦 Sylvester Warehouse Menu
 3. stock in <item> <qty>
 4. stock out <item> <qty>
 5. items"""
+
+
+def _menu_flex_bubble() -> dict:
+    def _btn(label: str, text: str, color: str) -> dict:
+        return {
+            "type": "button",
+            "style": "primary",
+            "color": color,
+            "height": "sm",
+            "action": {"type": "message", "label": label, "text": text},
+        }
+
+    return {
+        "type": "bubble",
+        "size": "kilo",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#1A237E",
+            "paddingAll": "16px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "📦 Sylvester",
+                    "color": "#FFFFFF",
+                    "weight": "bold",
+                    "size": "xl",
+                },
+                {
+                    "type": "text",
+                    "text": "Warehouse Assistant",
+                    "color": "#9FA8DA",
+                    "size": "sm",
+                    "margin": "xs",
+                },
+            ],
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "paddingAll": "14px",
+            "contents": [
+                _btn("📊 Stock Balance", "stock balance", "#1565C0"),
+                _btn("📋 Items",         "items",         "#00695C"),
+                _btn("➕ Stock In",      "stock in",      "#2E7D32"),
+                _btn("➖ Stock Out",     "stock out",     "#C62828"),
+                _btn("🆕 Add Item",     "add item",      "#6A1B9A"),
+            ],
+        },
+    }
+
+
+def _reply_flex(reply_token: str, bubble: dict, alt_text: str) -> bool:
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
+    }
+    payload = {
+        "replyToken": reply_token,
+        "messages": [{"type": "flex", "altText": alt_text, "contents": bubble}],
+    }
+    response = requests.post(LINE_REPLY_URL, headers=headers, json=payload)
+    print("LINE flex reply status:", response.status_code, response.text)
+    if response.status_code >= 400:
+        raise Exception(f"LINE API error: {response.status_code} {response.text}")
+    return True
 
 # ── Command handlers ──────────────────────────────────────────────────────────
 
@@ -117,11 +184,17 @@ def handle_message(text: str) -> str:
     if t == "items":
         return cmd_items()
 
+    if t == "add item":
+        return "Type: add item <name>\nExample: add item oat_milk"
+
     if t.startswith("add item "):
         name = text.strip()[9:].strip()
         if not name:
             return "Usage: add item <name>"
         return cmd_add_item(name)
+
+    if t == "stock in":
+        return "Type: stock in <item> <qty>\nExample: stock in oat_milk 20"
 
     if t.startswith("stock in "):
         parts = text.strip().split()
@@ -133,6 +206,9 @@ def handle_message(text: str) -> str:
             return cmd_stock_in(item, qty)
         except ValueError:
             return "Quantity must be a number.\nUsage: stock in <item> <qty>"
+
+    if t == "stock out":
+        return "Type: stock out <item> <qty>\nExample: stock out oat_milk 5"
 
     if t.startswith("stock out "):
         parts = text.strip().split()
@@ -199,12 +275,19 @@ async def webhook(request: Request):
         user_text = event["message"]["text"].strip()
         reply_token = event["replyToken"]
 
-        try:
-            message = handle_message(user_text)
-            _reply(reply_token, message)
-        except Exception as e:
-            print("GOOGLE SHEETS ERROR TYPE:", type(e).__name__)
-            print("GOOGLE SHEETS ERROR DETAIL:", repr(e))
-            _reply(reply_token, f"Google Sheets error: {type(e).__name__}: {str(e)}")
+        if user_text.lower() in ("menu", "hi", "start"):
+            try:
+                _reply_flex(reply_token, _menu_flex_bubble(), "📦 Sylvester Warehouse Menu")
+            except Exception as e:
+                print("FLEX MENU ERROR:", repr(e))
+                _reply(reply_token, MENU_TEXT)  # fallback to plain text
+        else:
+            try:
+                message = handle_message(user_text)
+                _reply(reply_token, message)
+            except Exception as e:
+                print("GOOGLE SHEETS ERROR TYPE:", type(e).__name__)
+                print("GOOGLE SHEETS ERROR DETAIL:", repr(e))
+                _reply(reply_token, f"Google Sheets error: {type(e).__name__}: {str(e)}")
 
     return {"status": "ok"}
