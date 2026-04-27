@@ -3,7 +3,7 @@ import hmac
 import hashlib
 import base64
 import json
-import httpx
+import requests
 from datetime import datetime
 from fastapi import FastAPI, Request, HTTPException
 import gspread
@@ -158,7 +158,7 @@ def _verify_signature(body: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-async def _reply(reply_token: str, text: str):
+def _reply(reply_token: str, text: str) -> None:
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
@@ -167,8 +167,10 @@ async def _reply(reply_token: str, text: str):
         "replyToken": reply_token,
         "messages": [{"type": "text", "text": text[:5000]}],
     }
-    async with httpx.AsyncClient() as client:
-        await client.post(LINE_REPLY_URL, json=payload, headers=headers)
+    response = requests.post(LINE_REPLY_URL, headers=headers, json=payload)
+    print("LINE reply status:", response.status_code, response.text)
+    if response.status_code >= 400:
+        raise Exception(f"LINE API error {response.status_code}: {response.text}")
 
 
 @app.get("/")
@@ -200,6 +202,6 @@ async def webhook(request: Request):
         except Exception as e:
             reply_text = f"Sorry, something went wrong.\nError: {e}"
 
-        await _reply(reply_token, reply_text)
+        _reply(reply_token, reply_text)
 
     return {"status": "ok"}
