@@ -1108,6 +1108,20 @@ async def webhook(request: Request):
         t         = user_text.lower()
 
         try:
+            # whoami — always available, no registration required
+            if t == "whoami":
+                display_name = _get_display_name(user_id)
+                is_mgr = _is_manager(user_id)
+                _reply(reply_token,
+                       f"👤 Your LINE Info\n"
+                       f"─────────────────────────\n"
+                       f"Name: {display_name}\n"
+                       f"ID:   {user_id}\n\n"
+                       f"{'✅ You are the manager.' if is_mgr else '❌ Not set as manager.'}\n\n"
+                       f"To set yourself as manager, add this to Railway env vars:\n"
+                       f"MANAGER_LINE_ID = {user_id}")
+                continue
+
             # 0. Registration gate — skip for manager
             if not _is_manager(user_id):
                 user_record = _get_user_record(user_id)
