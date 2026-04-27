@@ -4,9 +4,10 @@ import hashlib
 import base64
 import json
 import httpx
-from pathlib import Path
 from datetime import datetime
 from fastapi import FastAPI, Request, HTTPException
+import gspread
+from google.oauth2.service_account import Credentials
 
 app = FastAPI()
 
@@ -14,31 +15,29 @@ LINE_CHANNEL_SECRET = os.environ["LINE_CHANNEL_SECRET"]
 LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
 LINE_REPLY_URL = "https://api.line.me/v2/bot/message/reply"
 
-# ── JSON data files ──────────────────────────────────────────────────────────
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
 
-DATA_DIR = Path(__file__).parent / "data" / "warehouse_inventory"
-CATALOG_FILE = DATA_DIR / "item_catalog.json"
-BALANCE_FILE = DATA_DIR / "stock_balance.json"
-MOVEMENTS_FILE = DATA_DIR / "stock_movements.json"
+# ── Google Sheets helpers ────────────────────────────────────────────────────
 
-
-def _init_data():
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    for f, default in [
-        (CATALOG_FILE, {}),
-        (BALANCE_FILE, {}),
-        (MOVEMENTS_FILE, []),
-    ]:
-        if not f.exists():
-            f.write_text(json.dumps(default, indent=2))
+def _gs_client() -> gspread.Client:
+    creds_dict = json.loads(os.environ["GOOGLE_SHEETS_CREDENTIALS"])
+    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    return gspread.authorize(creds)
 
 
-def _load(path: Path):
-    return json.loads(path.read_text())
+def _spreadsheet() -> gspread.Spreadsheet:
+    return _gs_client().open("Sylvester Inventory")
 
 
-def _save(path: Path, data):
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+def _stock_ws() -> gspread.Worksheet:
+    return _spreadsheet().worksheet("stock")
+
+
+def _movements_ws() -> gspread.Worksheet:
+    return _spreadsheet().worksheet("movements")
 
 
 # ── Menu ─────────────────────────────────────────────────────────────────────
@@ -55,81 +54,71 @@ MENU_TEXT = """📦 Sylvester Warehouse Menu
 # ── Command handlers ─────────────────────────────────────────────────────────
 
 def cmd_add_item(name: str) -> str:
-    _init_data()
-    catalog = _load(CATALOG_FILE)
-    if name in catalog:
-        return f"'{name}' already exists (status: {catalog[name]['status']})."
-    catalog[name] = {"status": "active", "added": datetime.now().strftime("%Y-%m-%d %H:%M")}
-    _save(CATALOG_FILE, catalog)
-    balance = _load(BALANCE_FILE)
-    if name not in balance:
-        balance[name] = 0
-        _save(BALANCE_FILE, balance)
+    ws = _stock_ws()
+    records = ws.get_all_records()
+    for r in records:
+        if str(r.get("name", "")).lower() == name.lower():
+            return f"'{name}' already exists (status: {r.get('status', 'active')})."
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    ws.append_row([name, 0, "active", now])
     return f"✅ Item added: {name}\nStatus: active\nBalance: 0"
 
 
 def cmd_items() -> str:
-    _init_data()
-    catalog = _load(CATALOG_FILE)
-    if not catalog:
+    records = _stock_ws().get_all_records()
+    if not records:
         return "No items yet.\nUse: add item <name>"
     lines = ["📋 Item List\n─────────────────────────"]
-    for name, info in catalog.items():
-        icon = "✅" if info["status"] == "active" else "🔴"
-        lines.append(f"{icon} {name} ({info['status']})")
+    for r in records:
+        icon = "✅" if r.get("status") == "active" else "🔴"
+        lines.append(f"{icon} {r['name']} ({r.get('status', 'active')})")
     return "\n".join(lines)
 
 
 def cmd_stock_in(item: str, qty: int) -> str:
-    _init_data()
-    catalog = _load(CATALOG_FILE)
-    if item not in catalog:
-        return f"❌ Item '{item}' not found.\nUse: add item {item}"
-    if catalog[item]["status"] != "active":
-        return f"❌ Item '{item}' is inactive."
-    balance = _load(BALANCE_FILE)
-    balance[item] = balance.get(item, 0) + qty
-    _save(BALANCE_FILE, balance)
-    movements = _load(MOVEMENTS_FILE)
-    movements.append({
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "item": item, "type": "IN", "qty": qty, "balance_after": balance[item]
-    })
-    _save(MOVEMENTS_FILE, movements)
-    return f"✅ Stock IN recorded\nItem: {item}\nQty: +{qty}\nBalance: {balance[item]}"
+    ws = _stock_ws()
+    records = ws.get_all_records()
+    for i, r in enumerate(records, start=2):  # row 1 is header
+        if str(r.get("name", "")).lower() == item.lower():
+            if r.get("status") != "active":
+                return f"❌ Item '{item}' is inactive."
+            new_qty = int(r.get("qty", 0)) + qty
+            ws.update_cell(i, 2, new_qty)  # col 2 = qty
+            _log_movement(item, "IN", qty, new_qty)
+            return f"✅ Stock IN recorded\nItem: {item}\nQty: +{qty}\nBalance: {new_qty}"
+    return f"❌ Item '{item}' not found.\nUse: add item {item}"
 
 
 def cmd_stock_out(item: str, qty: int) -> str:
-    _init_data()
-    catalog = _load(CATALOG_FILE)
-    if item not in catalog:
-        return f"❌ Item '{item}' not found.\nUse: add item {item}"
-    if catalog[item]["status"] != "active":
-        return f"❌ Item '{item}' is inactive."
-    balance = _load(BALANCE_FILE)
-    current = balance.get(item, 0)
-    if qty > current:
-        return f"❌ Insufficient stock.\n'{item}' has only {current} in stock."
-    balance[item] = current - qty
-    _save(BALANCE_FILE, balance)
-    movements = _load(MOVEMENTS_FILE)
-    movements.append({
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "item": item, "type": "OUT", "qty": qty, "balance_after": balance[item]
-    })
-    _save(MOVEMENTS_FILE, movements)
-    return f"✅ Stock OUT recorded\nItem: {item}\nQty: -{qty}\nBalance: {balance[item]}"
+    ws = _stock_ws()
+    records = ws.get_all_records()
+    for i, r in enumerate(records, start=2):
+        if str(r.get("name", "")).lower() == item.lower():
+            if r.get("status") != "active":
+                return f"❌ Item '{item}' is inactive."
+            current = int(r.get("qty", 0))
+            if qty > current:
+                return f"❌ Insufficient stock.\n'{item}' has only {current} in stock."
+            new_qty = current - qty
+            ws.update_cell(i, 2, new_qty)
+            _log_movement(item, "OUT", qty, new_qty)
+            return f"✅ Stock OUT recorded\nItem: {item}\nQty: -{qty}\nBalance: {new_qty}"
+    return f"❌ Item '{item}' not found.\nUse: add item {item}"
 
 
 def cmd_stock_balance() -> str:
-    _init_data()
-    balance = _load(BALANCE_FILE)
-    if not balance:
+    records = _stock_ws().get_all_records()
+    if not records:
         return "No items yet.\nUse: add item <name>"
     lines = ["📦 Stock Balance\n─────────────────────────"]
-    for item, qty in balance.items():
-        lines.append(f"• {item}: {qty}")
+    for r in records:
+        lines.append(f"• {r['name']}: {r.get('qty', 0)}")
     return "\n".join(lines)
+
+
+def _log_movement(item: str, move_type: str, qty: int, balance_after: int):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    _movements_ws().append_row([now, item, move_type, qty, balance_after])
 
 
 # ── Command router ────────────────────────────────────────────────────────────
