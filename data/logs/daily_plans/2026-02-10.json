@@ -1,0 +1,308 @@
+[
+  {
+    "sent_at": "2026-04-26T11:50:25.780238+00:00",
+    "plan_id": "P163482",
+    "plan_name": "P'Know 11/02",
+    "staff_name": "P'Know",
+    "date": "2026-02-10",
+    "target_line_id": "Uad7b8bf7dfb741e2a34749a1c2111dd8",
+    "status": "sent",
+    "machine_count": 5,
+    "task_count": 2,
+    "machines": [
+      {
+        "machine_id": "210332",
+        "location_name": "Cabrini Malvern ICU",
+        "arrival_time": "11:34",
+        "route": "Eastern",
+        "notes": "",
+        "status": "pending",
+        "recurring_tasks": [
+          {
+            "task_name": "Clean milk frother",
+            "frequency": "fortnightly",
+            "last_done_date": "12 Apr"
+          }
+        ]
+      },
+      {
+        "machine_id": "210338",
+        "location_name": "Cabrini Malvern Emergency",
+        "arrival_time": "12:24",
+        "route": "Eastern",
+        "notes": "Open 24/7",
+        "status": "pending",
+        "recurring_tasks": [
+          {
+            "task_name": "Check CO2 fitting + clean drip tray",
+            "frequency": "monthly",
+            "last_done_date": "26 Mar"
+          }
+        ]
+      },
+      {
+        "machine_id": "210379",
+        "location_name": "Deakin Burwood Building LE",
+        "arrival_time": "13:04",
+        "route": "Burwood-Glen Waverly",
+        "notes": "",
+        "status": "pending",
+        "recurring_tasks": []
+      },
+      {
+        "machine_id": "230045",
+        "location_name": "Local Box hill",
+        "arrival_time": "15:15",
+        "route": "Burwood-Glen Waverly",
+        "notes": "",
+        "status": "pending",
+        "recurring_tasks": []
+      },
+      {
+        "machine_id": "210371",
+        "location_name": "Bunning Chadstone",
+        "arrival_time": "17:21",
+        "route": "Eastern",
+        "notes": "",
+        "status": "pending",
+        "recurring_tasks": []
+      }
+    ],
+    "log_path": "C:\\Users\\phonl\\OneDrive\\เดสก์ท็อป\\Claude Code\\FTA-Agent\\morning-brief-agent\\data\\logs\\daily_plans\\2026-02-10.json"
+  },
+  {
+    "sent_at": "2026-04-26T11:53:20.091465+00:00",
+    "plan_id": "P163482",
+    "plan_name": "P'Know 11/02",
+    "staff_name": "P'Know",
+    "date": "2026-02-10",
+    "target_line_id": "Uad7b8bf7dfb741e2a34749a1c2111dd8",
+    "status": "sent",
+    "machine_count": 5,
+    "task_count": 2,
+    "machines": [
+      {
+        "machine_id": "210332",
+        "location_name": "Cabrini Malvern ICU",
+        "arrival_time": "11:34",
+        "route": "Eastern",
+        "notes": "",
+        "status": "pending",
+        "recurring_tasks": [
+          {
+            "task_name": "Clean milk frother",
+            "frequency": "fortnightly",
+            "last_done_date": "12 Apr"
+          }
+        ]
+      },
+      {
+        "machine_id": "210338",
+        "location_name": "Cabrini Malvern Emergency",
+        "arrival_time": "12:24",
+        "route": "Eastern",
+        "notes": "Open 24/7",
+        "status": "pending",
+        "recurring_tasks": [
+          {
+            "task_name": "Check CO2 fitting + clean drip tray",
+            "frequency": "monthly",
+            "last_done_date": "26 Mar"
+          }
+        ]
+      },
+      {
+        "machine_id": "210379",
+        "location_name": "Deakin Burwood Building LE",
+        "arrival_time": "13:04",
+        "route": "Burwood-Glen Waverly",
+        "notes": "",
+        "status": "pending",
+        "recurring_tasks": []
+      },
+      {
+        "machine_id": "230045",
+        "location_name": "Local Box hill",
+        "arrival_time": "15:15",
+        "route": "Burwood-Glen Waverly",
+        "notes": "",
+        "status": "pending",
+        "recurring_tasks": []
+      },
+      {
+        "machine_id": "210371",
+        "location_name": "Bunning Chadstone",
+        "arrival_time": "17:21",
+        "route": "Eastern",
+        "notes": "",
+        "status": "pending",
+        "recurring_tasks": []
+      }
+    ],
+    "log_path": "C:\\Users\\phonl\\OneDrive\\เดสก์ท็อป\\Claude Code\\FTA-Agent\\morning-brief-agent\\data\\logs\\daily_plans\\2026-02-10.json"
+  },
+  {
+    "sent_at": "2026-04-26T12:20:57.527615+00:00",
+    "plan_id": "P163482",
+    "plan_name": "P'Know 11/02",
+    "staff_name": "P'Know",
+    "date": "2026-02-10",
+    "target_line_id": "Uad7b8bf7dfb741e2a34749a1c2111dd8",
+    "status": "sent",
+    "machine_count": 5,
+    "task_count": 2,
+    "machines": [
+      {
+        "machine_id": "210332",
+        "location_name": "Cabrini Malvern ICU",
+        "arrival_time": "11:34",
+        "route": "Eastern",
+        "notes": "",
+        "status": "done",
+        "recurring_tasks": [
+          {
+            "task_name": "Clean milk frother",
+            "frequency": "fortnightly",
+            "last_done_date": "12 Apr"
+          }
+        ],
+        "done_at": "2026-04-26T12:22:13.453845+00:00",
+        "done_by": "Uad7b8bf7dfb741e2a34749a1c2111dd8"
+      },
+      {
+        "machine_id": "210338",
+        "location_name": "Cabrini Malvern Emergency",
+        "arrival_time": "12:24",
+        "route": "Eastern",
+        "notes": "Open 24/7",
+        "status": "done",
+        "recurring_tasks": [
+          {
+            "task_name": "Check CO2 fitting + clean drip tray",
+            "frequency": "monthly",
+            "last_done_date": "26 Mar"
+          }
+        ],
+        "done_at": "2026-04-26T12:22:15.992560+00:00",
+        "done_by": "Uad7b8bf7dfb741e2a34749a1c2111dd8"
+      },
+      {
+        "machine_id": "210379",
+        "location_name": "Deakin Burwood Building LE",
+        "arrival_time": "13:04",
+        "route": "Burwood-Glen Waverly",
+        "notes": "",
+        "status": "done",
+        "recurring_tasks": [],
+        "done_at": "2026-04-26T12:22:17.434964+00:00",
+        "done_by": "Uad7b8bf7dfb741e2a34749a1c2111dd8"
+      },
+      {
+        "machine_id": "230045",
+        "location_name": "Local Box hill",
+        "arrival_time": "15:15",
+        "route": "Burwood-Glen Waverly",
+        "notes": "",
+        "status": "pending",
+        "recurring_tasks": []
+      },
+      {
+        "machine_id": "210371",
+        "location_name": "Bunning Chadstone",
+        "arrival_time": "17:21",
+        "route": "Eastern",
+        "notes": "",
+        "status": "done",
+        "recurring_tasks": [],
+        "done_at": "2026-04-26T12:22:20.635646+00:00",
+        "done_by": "Uad7b8bf7dfb741e2a34749a1c2111dd8"
+      }
+    ],
+    "log_path": "C:\\Users\\phonl\\OneDrive\\เดสก์ท็อป\\Claude Code\\FTA-Agent\\morning-brief-agent\\data\\logs\\daily_plans\\2026-02-10.json"
+  },
+  {
+    "sent_at": "2026-04-26T12:45:43.927284+00:00",
+    "plan_id": "P163482",
+    "plan_name": "P'Know 11/02",
+    "staff_name": "P'Know",
+    "date": "2026-02-10",
+    "target_line_id": "Uad7b8bf7dfb741e2a34749a1c2111dd8",
+    "status": "sent",
+    "machine_count": 5,
+    "task_count": 2,
+    "machines": [
+      {
+        "machine_id": "210332",
+        "location_name": "Cabrini Malvern ICU",
+        "arrival_time": "11:34",
+        "route": "Eastern",
+        "notes": "",
+        "status": "done",
+        "recurring_tasks": [
+          {
+            "task_name": "Clean milk frother",
+            "frequency": "fortnightly",
+            "last_done_date": "12 Apr"
+          }
+        ],
+        "done_at": "2026-04-26T12:46:30.451735+00:00",
+        "done_by": "Uad7b8bf7dfb741e2a34749a1c2111dd8"
+      },
+      {
+        "machine_id": "210338",
+        "location_name": "Cabrini Malvern Emergency",
+        "arrival_time": "12:24",
+        "route": "Eastern",
+        "notes": "Open 24/7",
+        "status": "done",
+        "recurring_tasks": [
+          {
+            "task_name": "Check CO2 fitting + clean drip tray",
+            "frequency": "monthly",
+            "last_done_date": "26 Mar"
+          }
+        ],
+        "done_at": "2026-04-26T12:45:55.143880+00:00",
+        "done_by": "Uad7b8bf7dfb741e2a34749a1c2111dd8"
+      },
+      {
+        "machine_id": "210379",
+        "location_name": "Deakin Burwood Building LE",
+        "arrival_time": "13:04",
+        "route": "Burwood-Glen Waverly",
+        "notes": "",
+        "status": "done",
+        "recurring_tasks": [],
+        "done_at": "2026-04-26T12:46:38.254091+00:00",
+        "done_by": "Uad7b8bf7dfb741e2a34749a1c2111dd8"
+      },
+      {
+        "machine_id": "230045",
+        "location_name": "Local Box hill",
+        "arrival_time": "15:15",
+        "route": "Burwood-Glen Waverly",
+        "notes": "",
+        "status": "issue",
+        "recurring_tasks": [],
+        "issue": true,
+        "issue_note": "",
+        "issue_at": "2026-04-26T12:46:41.102708+00:00",
+        "issue_by": "Uad7b8bf7dfb741e2a34749a1c2111dd8"
+      },
+      {
+        "machine_id": "210371",
+        "location_name": "Bunning Chadstone",
+        "arrival_time": "17:21",
+        "route": "Eastern",
+        "notes": "",
+        "status": "issue",
+        "recurring_tasks": [],
+        "issue": true,
+        "issue_note": "",
+        "issue_at": "2026-04-26T12:47:21.385280+00:00",
+        "issue_by": "Uad7b8bf7dfb741e2a34749a1c2111dd8"
+      }
+    ],
+    "log_path": "C:\\Users\\phonl\\OneDrive\\เดสก์ท็อป\\Claude Code\\FTA-Agent\\morning-brief-agent\\data\\logs\\daily_plans\\2026-02-10.json"
+  }
+]

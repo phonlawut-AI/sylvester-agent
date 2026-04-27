@@ -1,0 +1,132 @@
+[
+  {
+    "sent_at": "2026-04-26T15:15:48.329293+00:00",
+    "plan_id": "P163248",
+    "plan_name": "Earth 10/02",
+    "staff_name": "Earth",
+    "date": "2026-02-09",
+    "target_line_id": "U2cac0cc62d0a8bed741f9551adf98fdd",
+    "status": "sent",
+    "machine_count": 5,
+    "task_count": 2,
+    "machines": [
+      {
+        "machine_id": "230005",
+        "location_name": "METRO-ANZAC Station 3",
+        "arrival_time": "11:24",
+        "route": "METRO-VIC",
+        "notes": "",
+        "visit_status": "done",
+        "done_at": "2026-04-26T15:16:21.205436+00:00",
+        "done_by": "U2cac0cc62d0a8bed741f9551adf98fdd",
+        "issue_status": "none",
+        "issue_note": "",
+        "issue_images": [],
+        "issue_at": null,
+        "issue_by": null,
+        "not_done_reason": "",
+        "not_done_images": [],
+        "not_done_at": null,
+        "not_done_by": null,
+        "recurring_tasks": [
+          {
+            "task_name": "Clean milk frother",
+            "frequency": "fortnightly",
+            "last_done_date": "12 Apr"
+          }
+        ]
+      },
+      {
+        "machine_id": "230004",
+        "location_name": "METR-ANZAC Station 2",
+        "arrival_time": "11:54",
+        "route": "METRO-VIC",
+        "notes": "",
+        "visit_status": "done",
+        "done_at": "2026-04-26T15:16:24.709234+00:00",
+        "done_by": "U2cac0cc62d0a8bed741f9551adf98fdd",
+        "issue_status": "none",
+        "issue_note": "",
+        "issue_images": [],
+        "issue_at": null,
+        "issue_by": null,
+        "not_done_reason": "",
+        "not_done_images": [],
+        "not_done_at": null,
+        "not_done_by": null,
+        "recurring_tasks": [
+          {
+            "task_name": "Check CO2 fitting + clean drip tray",
+            "frequency": "monthly",
+            "last_done_date": "26 Mar"
+          }
+        ]
+      },
+      {
+        "machine_id": "230003",
+        "location_name": "METRO-ANZAC Station 1",
+        "arrival_time": "12:39",
+        "route": "METRO-VIC",
+        "notes": "",
+        "visit_status": "done",
+        "done_at": "2026-04-26T15:16:27.308732+00:00",
+        "done_by": "U2cac0cc62d0a8bed741f9551adf98fdd",
+        "issue_status": "none",
+        "issue_note": "",
+        "issue_images": [],
+        "issue_at": null,
+        "issue_by": null,
+        "not_done_reason": "",
+        "not_done_images": [],
+        "not_done_at": null,
+        "not_done_by": null,
+        "recurring_tasks": []
+      },
+      {
+        "machine_id": "230006",
+        "location_name": "METRO-Arden Station 1",
+        "arrival_time": "13:23",
+        "route": "METRO-VIC",
+        "notes": "",
+        "visit_status": "not_done",
+        "done_at": null,
+        "done_by": null,
+        "issue_status": "none",
+        "issue_note": "",
+        "issue_images": [],
+        "issue_at": null,
+        "issue_by": null,
+        "not_done_reason": "Cannot find the parking",
+        "not_done_images": [
+          "C:\\Users\\phonl\\OneDrive\\เดสก์ท็อป\\Claude Code\\FTA-Agent\\morning-brief-agent\\data\\not_done\\2026-02-09\\230006\\611337110242984124.jpg"
+        ],
+        "not_done_at": "2026-04-26T15:17:00.246944+00:00",
+        "not_done_by": "U2cac0cc62d0a8bed741f9551adf98fdd",
+        "recurring_tasks": []
+      },
+      {
+        "machine_id": "210463",
+        "location_name": "METRO-Town Hall Station 2",
+        "arrival_time": "14:05",
+        "route": "METRO-VIC",
+        "notes": "",
+        "visit_status": "pending",
+        "done_at": null,
+        "done_by": null,
+        "issue_status": "reported",
+        "issue_note": "Canister P6 broken",
+        "issue_images": [
+          "C:\\Users\\phonl\\OneDrive\\เดสก์ท็อป\\Claude Code\\FTA-Agent\\morning-brief-agent\\data\\issues\\2026-02-09\\210463\\611337163124769041.jpg"
+        ],
+        "issue_at": "2026-04-26T15:17:31.751884+00:00",
+        "issue_by": "U2cac0cc62d0a8bed741f9551adf98fdd",
+        "not_done_reason": "",
+        "not_done_images": [],
+        "not_done_at": null,
+        "not_done_by": null,
+        "recurring_tasks": []
+      }
+    ],
+    "log_path": "C:\\Users\\phonl\\OneDrive\\เดสก์ท็อป\\Claude Code\\FTA-Agent\\morning-brief-agent\\data\\logs\\daily_plans\\2026-02-09.json"
+  }
+]

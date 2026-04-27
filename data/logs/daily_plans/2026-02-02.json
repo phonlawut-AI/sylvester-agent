@@ -1,0 +1,128 @@
+[
+  {
+    "sent_at": "2026-04-26T15:05:30.690899+00:00",
+    "plan_id": "P161633",
+    "plan_name": "Drive 03/02/26",
+    "staff_name": "Drive",
+    "date": "2026-02-02",
+    "target_line_id": "Uad7b8bf7dfb741e2a34749a1c2111dd8",
+    "status": "sent",
+    "machine_count": 5,
+    "task_count": 2,
+    "machines": [
+      {
+        "machine_id": "210347",
+        "location_name": "Angliss Hospital Level 3",
+        "arrival_time": "13:18",
+        "route": "Burwood-Glen Waverly",
+        "notes": "Hospital",
+        "visit_status": "pending",
+        "done_at": null,
+        "done_by": null,
+        "issue_status": "none",
+        "issue_note": "",
+        "issue_images": [],
+        "issue_at": null,
+        "issue_by": null,
+        "not_done_reason": "",
+        "not_done_images": [],
+        "not_done_at": null,
+        "not_done_by": null,
+        "recurring_tasks": [
+          {
+            "task_name": "Clean milk frother",
+            "frequency": "fortnightly",
+            "last_done_date": "12 Apr"
+          }
+        ]
+      },
+      {
+        "machine_id": "210349",
+        "location_name": "Angliss Hospital Emergency",
+        "arrival_time": "13:18",
+        "route": "Burwood-Glen Waverly",
+        "notes": "Hospital",
+        "visit_status": "pending",
+        "done_at": null,
+        "done_by": null,
+        "issue_status": "none",
+        "issue_note": "",
+        "issue_images": [],
+        "issue_at": null,
+        "issue_by": null,
+        "not_done_reason": "",
+        "not_done_images": [],
+        "not_done_at": null,
+        "not_done_by": null,
+        "recurring_tasks": [
+          {
+            "task_name": "Check CO2 fitting + clean drip tray",
+            "frequency": "monthly",
+            "last_done_date": "26 Mar"
+          }
+        ]
+      },
+      {
+        "machine_id": "210362",
+        "location_name": "St John of God Berwick Hospital",
+        "arrival_time": "13:18",
+        "route": "AAA Grade Ma- chine",
+        "notes": "",
+        "visit_status": "pending",
+        "done_at": null,
+        "done_by": null,
+        "issue_status": "none",
+        "issue_note": "",
+        "issue_images": [],
+        "issue_at": null,
+        "issue_by": null,
+        "not_done_reason": "",
+        "not_done_images": [],
+        "not_done_at": null,
+        "not_done_by": null,
+        "recurring_tasks": []
+      },
+      {
+        "machine_id": "230025",
+        "location_name": "Basketball Dandenong (Court 4-7)",
+        "arrival_time": "13:18",
+        "route": "Melbourne CBD",
+        "notes": "",
+        "visit_status": "pending",
+        "done_at": null,
+        "done_by": null,
+        "issue_status": "none",
+        "issue_note": "",
+        "issue_images": [],
+        "issue_at": null,
+        "issue_by": null,
+        "not_done_reason": "",
+        "not_done_images": [],
+        "not_done_at": null,
+        "not_done_by": null,
+        "recurring_tasks": []
+      },
+      {
+        "machine_id": "230032",
+        "location_name": "Dandenong Basketball",
+        "arrival_time": "13:18",
+        "route": "Melbourne CBD",
+        "notes": "",
+        "visit_status": "pending",
+        "done_at": null,
+        "done_by": null,
+        "issue_status": "none",
+        "issue_note": "",
+        "issue_images": [],
+        "issue_at": null,
+        "issue_by": null,
+        "not_done_reason": "",
+        "not_done_images": [],
+        "not_done_at": null,
+        "not_done_by": null,
+        "recurring_tasks": []
+      }
+    ],
+    "log_path": "C:\\Users\\phonl\\OneDrive\\เดสก์ท็อป\\Claude Code\\FTA-Agent\\morning-brief-agent\\data\\logs\\daily_plans\\2026-02-02.json"
+  }
+]
