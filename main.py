@@ -232,12 +232,15 @@ def _items_flex_bubble(records: list[dict]) -> dict:
                      "flex": 4, "color": "#333333"},
                     {
                         "type": "box", "layout": "vertical", "flex": 1,
-                        "alignItems": "flex-end",
                         "contents": [{
-                            "type": "text", "text": str(qty),
-                            "size": "xs", "color": "#FFFFFF",
+                            "type": "box", "layout": "vertical",
                             "backgroundColor": badge_color,
-                            "align": "center",
+                            "cornerRadius": "8px", "paddingAll": "4px",
+                            "contents": [{
+                                "type": "text", "text": str(qty),
+                                "size": "xs", "color": "#FFFFFF",
+                                "align": "center",
+                            }],
                         }],
                     },
                 ],
@@ -311,8 +314,7 @@ def _confirm_flex_bubble(action: str, item: str, qty: int | None) -> dict:
                 {"type": "text", "text": titles[action],
                  "color": "#FFFFFF", "weight": "bold", "size": "lg"},
                 {"type": "text", "text": "Review before confirming",
-                 "color": "#FFFFFF", "size": "xs", "margin": "xs",
-                 "opacity": 0.8},
+                 "color": "#FFFFFF", "size": "xs", "margin": "xs"},
             ],
         },
         "body": {
@@ -390,8 +392,8 @@ def _handle_pending(user_id: str, reply_token: str, user_text: str):
             _reply(reply_token, f"Item: {item}\n\nEnter quantity:")
         return
 
-    # Step 2 — waiting for quantity
-    if pending["qty"] is None:
+    # Step 2 — waiting for quantity (stock_in / stock_out only)
+    if pending["qty"] is None and action in ("stock_in", "stock_out"):
         try:
             qty = int(user_text.strip())
             if qty <= 0:
